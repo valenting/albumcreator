@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Hello</title>
+
+<script src="https://accounts.google.com/gsi/client"
+onload="console.log('TODO: add onload function')">  
+</script>
+
+<script type="text/javascript">
+
+	window.authInfo = null;
+
+	function authDone(temp0) {
+		window.authInfo = temp0;
+		console.log(temp0);
+		fetchWithAuth("https://photoslibrary.googleapis.com/v1/albums").then(resp => resp.json()).then(console.log);
+		let d = new Date();
+		d.setSeconds(d.getSeconds() + temp0.expires_in);
+		authInfo.expiration_time = d;
+		localStorage.setItem("auth", JSON.stringify(authInfo));
+	}
+
+	function startAuth() {
+		let oldAuth = localStorage.getItem("auth");
+		if (oldAuth) {
+			window.authInfo = JSON.parse(oldAuth);
+			if (new Date(authInfo.expiration_time) > new Date()) {
+				console.log("cached authorized token still valid");
+				return;
+			}
+			console.log("cached authorized token has expired");
+			localStorage.removeItem("auth");
+		}
+
+		let scopes = "https://www.googleapis.com/auth/photoslibrary";
+		window.authClient = google.accounts.oauth2.initTokenClient({
+		  client_id: '232433076361-r70akb8o0b1ke25n7k224b38dsfdbl9k.apps.googleusercontent.com',
+		  scope: scopes,
+		  ux_mode: 'popup',
+		  redirect_uri: "https://albumcreator.gosu.se/index.html",
+		  state: "YOUR_BINDING_VALUE",
+		  callback: authDone,
+		});
+
+		window.authClient.requestAccessToken();
+	}
+
+	async function getEmailFromServer() {
+		let resp = await fetchWithAuth("https://www.googleapis.com/oauth2/v2/userinfo");
+
+		let json = await resp.json();
+
+		return json.email;
+	}
+
+	async function getAlbumsFromServer() {
+		let albums = [];
+
+		let nextPageToken = null;
+		while (true) {
+			let url = "https://photoslibrary.googleapis.com/v1/albums?pageSize=50";
+			if (nextPageToken) {
+				url += `&pageToken=${nextPageToken}`;
+			}
+			let resp = await fetchWithAuth(url);
+			let json = await resp.json();
+			nextPageToken = json.nextPageToken;
+			for (let album of json.albums) {
+				albums.push(album);
+			}
+			if (!nextPageToken) {
+				break;
+			}
+		}
+		return albums;
+	}
+
+async function fetchWithAuth(url, options) {
+	// TODO: check if token has expired.
+	if (!options) {
+		options = {};
+	}
+	if (!options.headers) {
+		options.headers = new Headers();
+	}
+
+	if (!options.headers.has("Authorization")) {
+		options.headers.set("Authorization", `${authInfo.token_type} ${authInfo.access_token}`);
+	}
+	return fetch(url, options);
+}
+
+async function getPhotosInAlbum(albumID) {
+	let photos = [];
+	let pageToken = null;
+	do {
+		let url = "https://photoslibrary.googleapis.com/v1/mediaItems:search?pageSize=100";
+		if (pageToken) {
+			url += `&pageToken=${pageToken}`;
+		}
+		let data = {
+			"albumId": albumID,
+		  "pageSize": 100,
+		};
+		if (pageToken) {
+			data.pageToken = pageToken
+		}
+		let resp = await fetchWithAuth(url, {
+			method: "POST",
+			headers: new Headers({
+      	'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify(data),
+    });
+    let json = await resp.json();
+    pageToken = json.nextPageToken;
+    for (let photo of json.mediaItems) {
+    	photos.push(photo);
+    }
+	} while (pageToken);
+	return photos;
+}
+
+</script>
+<!-- <script src="logic.js"></script> -->
+</head>
+<body>
+
+	Hello
+
+	<button onclick="startAuth()">Authorize with Google</button>
+
+</body>
+</html>
